@@ -6,7 +6,7 @@ const fccTesting  = require('./freeCodeCamp/fcctesting.js');
 const session     = require('express-session');
 const mongo       = require('mongodb').MongoClient;
 const passport    = require('passport');
-const GitHubStrategy  = require('passport-github').Strategy;
+const GitHubStrategy = require('passport-github').Strategy;
 
 const app = express();
 
@@ -18,12 +18,12 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 app.set('view engine', 'pug')
 
-mongo.connect(process.env.DATABASE, (err, db) => {
+mongo.connect(process.env.DATABASE, { useUnifiedTopology: true }, (err, client) => {
     if(err) {
         console.log('Database error: ' + err);
     } else {
         console.log('Successful database connection');
-      
+      let db = client.db('advancednode');
         app.use(session({
           secret: process.env.SESSION_SECRET,
           resave: true,
@@ -57,30 +57,50 @@ mongo.connect(process.env.DATABASE, (err, db) => {
         *  ADD YOUR CODE BELOW
         */
       
-      passport.use(new GitHubStrategy({
-        clientID: process.env.GITHUB_CLIENT_ID,
-        clientSecret: process.env.GITHUB_CLIENT_SECRET,
-        callbackURL: 'https://glitch.com/@olkace/auth/github/callback'
-            },
-         function(accessToken, refreshToken, profile, cb) {
-                console.log(profile);
-                //Database logic here with callback containing our user object
-              }
+      
+        passport.use(new GitHubStrategy({
+            clientID: process.env.GITHUB_CLIENT_ID,
+            clientSecret: process.env.GITHUB_CLIENT_SECRET,          
+            callbackURL: "https://advanced-node-and-express-socialauth-oshka.glitch.me/auth/github/callback",
+          profileFields: ['id', 'name', 'email']
+            //callbackURL: "https://glitch.com/@olkace/auth/github/callback"
+          },
+          function(accessToken, refreshToken, profile, cb) {
+              console.log(profile);
+              db.collection('socialusers').findAndModify(
+                  {id: profile.id},
+                  {},
+                  {$setOnInsert:{
+                      id: profile.id,
+                      name: profile.displayName || 'John Doe',
+                      photo: (typeof profile.photos !== 'undefined' && profile.photos)?profile.photos[0].value : '',
+                      email: (typeof profile.emails !== 'undefined' && profile.emails)?profile.emails[0].value : 'No public email',
+
+                   //   email: profile.emails[0].value || 'No public email',
+                    //email: profile.email || 'No public email',
+                      created_on: new Date(),
+                      provider: profile.provider || ''
+                  },$set:{
+                      last_login: new Date()
+                  },$inc:{
+                      login_count: 1
+                  }},
+                  {upsert:true, new: true}, //Insert object if not found, Return new object after modify
+                  (err, doc) => {
+                      return cb(null, doc.value);
+                  }
+              );
+            }
         ));
       
-      app.route('/auth/github')
-      .get(passport.authenticate('github'), (req,res) => {
-        res.redirect('/profile');
-      });
-      
-     app.route('/auth/github/callback')
-      .get(passport.authenticate('github', { failureRedirect: '/' }), (req,res) => {
-        res.redirect('/profile');
-      });
-      
-      
-      
-      
+        app.route('/auth/github')
+          .get(passport.authenticate('github'));
+
+
+        app.route('/auth/github/callback')
+          .get(passport.authenticate('github', { failureRedirect: '/' }), (req,res) => {
+              res.redirect('/profile');
+          });
       
         /*
         *  ADD YOUR CODE ABOVE
